@@ -51,7 +51,7 @@ pub struct SafetyInterlockManager {
     metrics: Arc<RwLock<SafetyMetrics>>,
 }
 
-/// 명령 안전성 기록
+/// Command safety record
 #[derive(Debug, Clone)]
 pub struct CommandSafetyRecord {
     pub timestamp: Instant,
@@ -62,7 +62,7 @@ pub struct CommandSafetyRecord {
     pub response_time: Duration,
 }
 
-/// 안전 조치
+/// Safety action
 #[derive(Debug, Clone)]
 pub enum SafetyAction {
     Allowed,        // Allowed
@@ -72,7 +72,7 @@ pub enum SafetyAction {
     Emergency,      // Emergency
 }
 
-/// 안전 메트릭
+/// Safety metrics
 #[derive(Debug, Clone)]
 pub struct SafetyMetrics {
     pub total_commands: u64,
