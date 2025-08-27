@@ -47,25 +47,34 @@ impl AmqpClient {
         let telemetry_ch = self.telemetry_channel.lock().await;
         let command_ch = self.command_channel.lock().await;
         
-        // Exchange setup
+        // Exchange setup - must match assignment A_final configuration
+        let mut exchange_options = ExchangeDeclareOptions::default();
+        exchange_options.durable = true;
+        
         telemetry_ch.exchange_declare(
             "telemetry", 
             ExchangeKind::Topic, 
-            ExchangeDeclareOptions::default(), 
+            exchange_options, 
             FieldTable::default()
         ).await?;
         
-        // Telemetry queue setup (OCS → GCS)
+        // Telemetry queue setup (OCS → GCS) - must match assignment A_final configuration
+        let mut telemetry_queue_options = QueueDeclareOptions::default();
+        telemetry_queue_options.durable = true;
+        
         telemetry_ch.queue_declare(
             "gcs_telem", 
-            QueueDeclareOptions::default(), 
+            telemetry_queue_options, 
             FieldTable::default()
         ).await?;
         
-        // Command queue setup (GCS → OCS)
+        // Command queue setup (GCS → OCS) - must match assignment A_final configuration
+        let mut command_queue_options = QueueDeclareOptions::default();
+        command_queue_options.durable = true;
+        
         command_ch.queue_declare(
             "ocs_cmd", 
-            QueueDeclareOptions::default(), 
+            command_queue_options, 
             FieldTable::default()
         ).await?;
         
