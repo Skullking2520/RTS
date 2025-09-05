@@ -1,4 +1,4 @@
-// safety.rs - Perfect Safety Interlock System for A+ Grade
+// safety.rs - Advanced Safety Interlock System
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{info, warn, error, debug};
 use serde::{Deserialize, Serialize};
+use crate::performance::PerformanceMonitor;
 
 /// Safety Interlock State
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -49,6 +50,7 @@ pub struct SafetyInterlockManager {
     global_state: Arc<RwLock<InterlockState>>,
     command_history: Arc<RwLock<Vec<CommandSafetyRecord>>>,
     metrics: Arc<RwLock<SafetyMetrics>>,
+    performance_monitor: Option<PerformanceMonitor>,
 }
 
 /// Command safety record
@@ -101,17 +103,29 @@ impl Default for SafetyMetrics {
 }
 
 impl SafetyInterlockManager {
-    /// 새로운 안전 인터락 관리자 생성
+    /// Create new safety interlock manager
     pub fn new() -> Self {
         Self {
             interlocks: Arc::new(RwLock::new(HashMap::new())),
             global_state: Arc::new(RwLock::new(InterlockState::Safe)),
             command_history: Arc::new(RwLock::new(Vec::new())),
             metrics: Arc::new(RwLock::new(SafetyMetrics::default())),
+            performance_monitor: None,
+        }
+    }
+    
+    /// Create new safety interlock manager with performance monitor
+    pub fn new_with_performance_monitor(performance_monitor: Option<PerformanceMonitor>) -> Self {
+        Self {
+            interlocks: Arc::new(RwLock::new(HashMap::new())),
+            global_state: Arc::new(RwLock::new(InterlockState::Safe)),
+            command_history: Arc::new(RwLock::new(Vec::new())),
+            metrics: Arc::new(RwLock::new(SafetyMetrics::default())),
+            performance_monitor,
         }
     }
 
-    /// 인터락 활성화
+    /// Activate interlock
     pub async fn activate_interlock(
         &self,
         interlock_type: InterlockType,
@@ -143,10 +157,10 @@ impl SafetyInterlockManager {
             interlocks.insert(interlock_type.clone(), interlock_info);
         }
 
-        // 글로벌 상태 업데이트
+        // Update global state
         self.update_global_state().await?;
         
-        // 메트릭 업데이트
+        // Update metrics
         {
             let mut metrics = self.metrics.write().await;
             metrics.interlock_activations += 1;
@@ -157,7 +171,7 @@ impl SafetyInterlockManager {
         Ok(())
     }
 
-    /// 인터락 비활성화
+    /// Deactivate interlock
     pub async fn deactivate_interlock(&self, interlock_type: &InterlockType) -> Result<()> {
         let start_time = Instant::now();
         
@@ -168,7 +182,7 @@ impl SafetyInterlockManager {
                 interlock.recovery_time = Some(activation_duration);
                 interlock.state = InterlockState::Safe;
                 
-                // 메트릭 업데이트
+                // Update metrics
                 {
                     let mut metrics = self.metrics.write().await;
                     metrics.recovery_count += 1;
@@ -179,21 +193,22 @@ impl SafetyInterlockManager {
             }
         }
 
-        // 글로벌 상태 업데이트
+        // Update global state
         self.update_global_state().await?;
         
         Ok(())
     }
 
-    /// 명령 안전성 검증
+    /// Validate command safety
     pub async fn validate_command(
         &self,
         command_type: &str,
         command_data: &str,
     ) -> Result<(bool, SafetyAction, Option<InterlockType>)> {
         let start_time = Instant::now();
+        let interlock_detection_start = Instant::now();
         
-        // 인터락 상태 확인
+        // Check interlock status
         let interlock_check = self.check_interlocks_for_command(command_type).await;
         
         let (allowed, action, triggered_interlock) = match interlock_check {
@@ -210,8 +225,20 @@ impl SafetyInterlockManager {
         };
 
         let response_time = start_time.elapsed();
+        let interlock_latency = interlock_detection_start.elapsed();
         
-        // 명령 기록 저장
+        // Log interlock latency (detection to command block)
+        if matches!(action, SafetyAction::Blocked | SafetyAction::Emergency) {
+            info!("METRICS: Interlock latency: {:?} (detection to command block)", interlock_latency);
+        }
+        
+        // Check for critical ground alert (>100ms response time)
+        if response_time > Duration::from_millis(100) {
+            error!("CRITICAL GROUND ALERT: Fault response time exceeded 100ms threshold: {:?}", response_time);
+            self.trigger_critical_ground_alert(response_time).await;
+        }
+        
+        // Store command record
         let record = CommandSafetyRecord {
             timestamp: start_time,
             command_type: command_type.to_string(),
@@ -225,13 +252,13 @@ impl SafetyInterlockManager {
             let mut history = self.command_history.write().await;
             history.push(record);
             
-            // 최대 1000개 기록 유지
+            // Keep maximum 1000 records
             if history.len() > 1000 {
                 history.remove(0);
             }
         }
 
-        // 메트릭 업데이트
+        // Update metrics
         {
             let mut metrics = self.metrics.write().await;
             metrics.total_commands += 1;
@@ -254,6 +281,13 @@ impl SafetyInterlockManager {
             metrics.average_response_time = total_time;
         }
 
+        // Record fault recovery time
+        if let Some(performance_monitor) = &self.performance_monitor {
+            if matches!(action, SafetyAction::Blocked | SafetyAction::Emergency) {
+                performance_monitor.record_fault_recovery(response_time).await;
+            }
+        }
+        
         // Logging
         match action {
             SafetyAction::Allowed => {
@@ -449,5 +483,69 @@ impl SafetyInterlockManager {
 impl Default for SafetyInterlockManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl SafetyInterlockManager {
+    /// Simulate real safety interlocks for testing
+    pub async fn simulate_safety_interlocks(&self) -> Result<()> {
+        let interlock_types = vec![
+            (InterlockType::Thermal, InterlockState::Critical, "High temperature detected"),
+            (InterlockType::Power, InterlockState::Warning, "Low power warning"),
+            (InterlockType::Communication, InterlockState::Emergency, "Communication loss"),
+            (InterlockType::Sensor, InterlockState::Critical, "Sensor failure detected"),
+        ];
+        
+        for (interlock_type, state, description) in interlock_types {
+            let interlock_info = InterlockInfo {
+                interlock_type: interlock_type.clone(),
+                state: state.clone(),
+                activation_time: Instant::now(),
+                recovery_time: None,
+                fault_description: description.to_string(),
+                severity: match state {
+                    InterlockState::Warning => 3,
+                    InterlockState::Critical => 7,
+                    InterlockState::Emergency => 10,
+                    _ => 1,
+                },
+                affected_commands: vec!["system_reset".to_string(), "fault_injection".to_string()],
+                auto_recovery: false,
+            };
+            
+            // Activate interlock
+            {
+                let mut interlocks = self.interlocks.write().await;
+                interlocks.insert(interlock_type.clone(), interlock_info);
+            }
+            
+            info!("Safety interlock activated: {:?} - {}", interlock_type, description);
+            
+            // Small delay between interlocks
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        
+        Ok(())
+    }
+    
+    /// Trigger critical ground alert for response time >100ms
+    async fn trigger_critical_ground_alert(&self, response_time: Duration) {
+        let alert_message = serde_json::json!({
+            "alert": "CriticalGroundAlert",
+            "description": format!("Fault response time exceeded 100ms threshold: {:?}", response_time),
+            "severity": "Critical",
+            "source": "gcs_safety",
+            "timestamp": chrono::Utc::now(),
+            "response_time_ms": response_time.as_millis(),
+            "threshold_ms": 100,
+            "action_required": "Immediate ground team response required"
+        });
+        
+        // Log critical alert
+        error!("CRITICAL GROUND ALERT: Response time {:?} exceeds 100ms threshold", response_time);
+        
+        // In a real system, this would trigger emergency procedures
+        // For simulation, we just log the alert
+        info!("Emergency procedures would be activated for response time: {:?}", response_time);
     }
 }

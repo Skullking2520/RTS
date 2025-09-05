@@ -1,18 +1,18 @@
-// types.rs - OCS-GCS 통신을 위한 표준화된 메시지 타입
+// types.rs - Standardized message types for OCS-GCS communication
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use std::fmt;
 
-/// 공통 메시지 헤더
+/// Common message header
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageHeader {
     pub timestamp: DateTime<Utc>,
-    pub source: String,        // "ocs" 또는 "gcs"
-    pub sequence: u64,         // 메시지 순서 번호
+    pub source: String,        // "ocs" or "gcs"
+    pub sequence: u64,         // Message sequence number
     pub message_type: String,  // "alert", "command", "telemetry", "status"
 }
 
-/// OCS에서 발행하는 알림 메시지
+/// Alert message published by OCS
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlertMessage {
     pub header: MessageHeader,
@@ -22,7 +22,7 @@ pub struct AlertMessage {
     pub sensor_id: Option<String>,
 }
 
-/// 알림 심각도 레벨
+/// Alert severity level
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AlertSeverity {
     Info,
@@ -31,7 +31,7 @@ pub enum AlertSeverity {
     Critical,
 }
 
-/// GCS에서 OCS로 보내는 명령 메시지
+/// Command message sent from GCS to OCS
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandMessage {
     pub header: MessageHeader,
@@ -40,7 +40,7 @@ pub struct CommandMessage {
     pub priority: CommandPriority,
 }
 
-/// 명령 타입
+/// Command type
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CommandType {
     SystemStatus,
@@ -64,7 +64,7 @@ impl fmt::Display for CommandType {
     }
 }
 
-/// 명령 우선순위
+/// Command priority
 #[derive(Debug, Clone, Serialize, Deserialize, Copy)]
 pub enum CommandPriority {
     Low,
@@ -73,7 +73,7 @@ pub enum CommandPriority {
     Emergency,
 }
 
-/// OCS에서 GCS로 보내는 텔레메트리 메시지
+/// Telemetry message sent from OCS to GCS
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryMessage {
     pub header: MessageHeader,
@@ -83,7 +83,7 @@ pub struct TelemetryMessage {
     pub status: SensorStatus,
 }
 
-/// 센서 상태
+/// Sensor status
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SensorStatus {
     Normal,
@@ -92,7 +92,7 @@ pub enum SensorStatus {
     Offline,
 }
 
-/// GCS에서 OCS로 보내는 응답 메시지
+/// Response message sent from GCS to OCS
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseMessage {
     pub header: MessageHeader,
@@ -103,7 +103,7 @@ pub struct ResponseMessage {
     pub error_message: Option<String>,
 }
 
-/// 응답 타입
+/// Response type
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ResponseType {
     Acknowledgment,
@@ -112,7 +112,7 @@ pub enum ResponseType {
     Status,
 }
 
-/// 시스템 상태 정보
+/// System status information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemStatus {
     pub header: MessageHeader,

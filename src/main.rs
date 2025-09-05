@@ -1,8 +1,8 @@
-// main.rs - Enhanced GCS Main Function for A+ Grade OCS-GCS Communication
+// main.rs - Enhanced GCS Main Function for OCS-GCS Communication
 use anyhow::Result;
 use tokio::sync::mpsc;
-use tracing::{info, warn, error};
-use tracing_subscriber::EnvFilter;
+use tracing::{info, warn, error, debug};
+use tracing_subscriber::{EnvFilter, prelude::*};
 use std::time::Duration;
 
 mod config;
@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     
     info!("Enhanced GCS (Ground Control Station) System Starting");
     info!("========================================================");
-    info!("A+ Grade Real-Time System Requirements:");
+    info!("System Requirements:");
     info!("   • 3ms telemetry decoding deadline");
     info!("   • 2ms urgent command dispatch");
     info!("   • 100ms fault response threshold");
@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
     let metrics = Metrics::default();
     metrics.update_connection_status(true).await;
     
-    // Initialize Performance Monitor for A+ Grade
+    // Initialize Performance Monitor
     let performance_monitor = PerformanceMonitor::new(Duration::from_secs(5), 1000);
     info!("Performance monitoring system initialized");
     
@@ -81,8 +81,13 @@ async fn main() -> Result<()> {
         amqp_client.clone(),
         metrics.clone(),
         response_tx.clone(),
+        Some(performance_monitor.clone()),
     );
     
+    // Clone for fault simulation and telemetry simulation
+    let telemetry_task_clone = telemetry_task.clone();
+    let telemetry_task_sim_clone = telemetry_task.clone();
+
     let telemetry_handle = tokio::spawn(async move {
         if let Err(e) = telemetry_task.run("gcs_telem", config.decode_budget).await {
             error!("Telemetry task failed: {}", e);
@@ -94,7 +99,11 @@ async fn main() -> Result<()> {
         amqp_client.clone(),
         metrics.clone(),
         response_tx.clone(),
+        Some(performance_monitor.clone()),
     );
+    
+    // Clone for command simulation
+    let uplink_task_sim_clone = uplink_task.clone();
     
     let uplink_handle = tokio::spawn(async move {
         if let Err(e) = uplink_task.run("ocs_cmd", config.dispatch_budget).await {
@@ -102,14 +111,21 @@ async fn main() -> Result<()> {
         }
     });
     
-    // Enhanced metrics reporting task
-    let metrics_clone = metrics.clone();
+    // Enhanced metrics reporting task with scheduling drift logging
+    let _metrics_clone = metrics.clone();
     let performance_monitor_clone = performance_monitor.clone();
     let metrics_period = config.metrics_period;
     let metrics_handle = tokio::spawn(async move {
         let mut tick = tokio::time::interval(metrics_period);
+        let mut last_tick_time = std::time::Instant::now();
+        
         loop {
+            let scheduled_time = last_tick_time + metrics_period;
             tick.tick().await;
+            let actual_time = std::time::Instant::now();
+            
+            // Record scheduling drift for metrics reporting task
+            performance_monitor_clone.record_drift(scheduled_time, actual_time).await;
             
             // Generate comprehensive performance report
             let benchmark = performance_monitor_clone.generate_benchmark().await;
@@ -135,12 +151,26 @@ async fn main() -> Result<()> {
                   benchmark.fault_stats.average_recovery_time,
                   benchmark.fault_stats.total_faults);
             
-            // Update communication metrics
-            // metrics_clone.update_performance_stats(benchmark).await;
+            // Log scheduling drift details
+            let drift = if actual_time > scheduled_time {
+                actual_time.duration_since(scheduled_time)
+            } else {
+                scheduled_time.duration_since(actual_time)
+            };
+            
+            if drift > Duration::from_millis(5) {
+                warn!("WARNING: Metrics task scheduling drift: {:?} (scheduled: {:?}, actual: {:?})", 
+                      drift, scheduled_time, actual_time);
+            } else {
+                debug!("SUCCESS: Metrics task on time: drift {:?}", drift);
+            }
+            
+            last_tick_time = actual_time;
         }
     });
     
     // Enhanced safety monitoring task
+    let safety_manager = SafetyInterlockManager::new_with_performance_monitor(Some(performance_monitor.clone()));
     let safety_manager_clone = safety_manager.clone();
     let safety_handle = tokio::spawn(async move {
         if let Err(e) = safety_manager_clone.safety_monitoring_loop().await {
@@ -178,6 +208,76 @@ async fn main() -> Result<()> {
         }
     });
     
+    // System load monitoring task
+    let performance_monitor_clone = performance_monitor.clone();
+    let load_handle = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            tick.tick().await;
+            
+            // Simulate system load monitoring
+            let cpu_util = std::thread::available_parallelism()
+                .map(|n| n.get() as f64)
+                .unwrap_or(1.0) * 0.7; // Simulate 70% CPU load
+            let memory_util = 0.6; // Simulate 60% memory usage
+            let active_threads = 8; // Simulate 8 active threads
+            
+            performance_monitor_clone.update_system_load(cpu_util, memory_util, active_threads).await;
+            
+            // Update communication metrics
+            performance_monitor_clone.update_communication_metrics(100, 50).await;
+        }
+    });
+    
+    // Fault simulation task
+    let fault_handle = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(30)); // Simulate faults every 30 seconds
+        loop {
+            tick.tick().await;
+            
+            if let Err(e) = telemetry_task_clone.simulate_fault_messages().await {
+                error!("Fault simulation failed: {}", e);
+            }
+        }
+    });
+    
+    // Telemetry simulation task
+    let telemetry_sim_handle = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(10)); // Simulate telemetry every 10 seconds
+        loop {
+            tick.tick().await;
+            
+            if let Err(e) = telemetry_task_sim_clone.simulate_telemetry_messages().await {
+                error!("Telemetry simulation failed: {}", e);
+            }
+        }
+    });
+    
+    // Command simulation task
+    let command_sim_handle = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(15)); // Simulate commands every 15 seconds
+        loop {
+            tick.tick().await;
+            
+            if let Err(e) = uplink_task_sim_clone.simulate_command_messages().await {
+                error!("Command simulation failed: {}", e);
+            }
+        }
+    });
+    
+    // Safety interlock simulation task
+    let safety_manager_sim_clone = safety_manager.clone();
+    let safety_sim_handle = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(45)); // Simulate interlocks every 45 seconds
+        loop {
+            tick.tick().await;
+            
+            if let Err(e) = safety_manager_sim_clone.simulate_safety_interlocks().await {
+                error!("Safety interlock simulation failed: {}", e);
+            }
+        }
+    });
+    
     info!("All GCS tasks started successfully");
     info!("Waiting for shutdown signal...");
     
@@ -192,24 +292,61 @@ async fn main() -> Result<()> {
     safety_handle.abort();
     health_handle.abort();
     response_handle.abort();
+    load_handle.abort();
+    fault_handle.abort();
+    telemetry_sim_handle.abort();
+    command_sim_handle.abort();
+    safety_sim_handle.abort();
     
     info!("GCS system shutdown complete");
     Ok(())
 }
 
-/// Enhanced logging setup with structured logging
+/// Enhanced logging setup with structured logging and file output
 fn setup_logging() -> Result<()> {
+    use tracing_appender::rolling;
+    use std::fs;
+    
+    // Create logs directory if it doesn't exist
+    if let Err(_) = fs::create_dir_all("logs") {
+        eprintln!("Warning: Could not create logs directory");
+    }
+    
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"));
     
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
+    // Create file appender for logs
+    let file_appender = rolling::daily("logs", "gcs.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    
+    // Setup console logging
+    let console_layer = tracing_subscriber::fmt::layer()
         .with_target(true)
         .with_thread_ids(true)
         .with_thread_names(true)
         .with_file(true)
         .with_line_number(true)
+        .with_ansi(true);
+    
+    // Setup file logging
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(non_blocking)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(false);
+    
+    // Combine console and file logging
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(console_layer)
+        .with(file_layer)
         .init();
+    
+    // Keep the guard alive
+    std::mem::forget(_guard);
     
     Ok(())
 }

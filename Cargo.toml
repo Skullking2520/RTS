@@ -7,29 +7,29 @@ authors = ["GCS Team"]
 license = "MIT"
 
 [dependencies]
-# 비동기 런타임
+# Async runtime
 tokio = { version = "1.38", features = ["rt-multi-thread", "macros", "time", "sync", "io-util", "signal"] }
 
-# AMQP 클라이언트
+# AMQP client
 lapin = "2.5"
 
-# 유틸리티
+# Utilities
 futures-util = "0.3"
 anyhow = "1"
 thiserror = "1"
 chrono = { version = "0.4", features = ["serde"] }
 
-# 직렬화
+# Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bincode = "1.3"
 
-# 로깅
+# Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter"] }
 tracing-appender = "0.2"
 
-# 바이트 처리
+# Byte processing
 bytes = "1.6"
 
 [dev-dependencies]

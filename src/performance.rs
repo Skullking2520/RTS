@@ -1,4 +1,4 @@
-// performance.rs - Advanced Real-Time Performance Monitoring for A+ Grade
+// performance.rs - Advanced Real-Time Performance Monitoring
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn, error, debug};
 
-/// Real-time performance metrics for A+ Grade requirements
+/// Real-time performance metrics
 #[derive(Debug, Clone)]
 pub struct RealTimeMetrics {
     pub jitter_measurements: VecDeque<Duration>,
@@ -102,8 +102,8 @@ pub struct CommunicationStatistics {
     pub packet_loss_rate: f64,
 }
 
-/// Advanced Performance Monitor for A+ Grade
-#[derive(Clone)]
+/// Advanced Performance Monitor
+#[derive(Debug, Clone)]
 pub struct PerformanceMonitor {
     metrics: Arc<RwLock<RealTimeMetrics>>,
     benchmark_history: Arc<RwLock<Vec<PerformanceBenchmark>>>,
@@ -238,7 +238,7 @@ impl PerformanceMonitor {
         }
         
         if command_queue_size > 50 {
-            warn!("⚠️  High command queue size: {} commands", command_queue_size);
+            warn!("WARNING: High command queue size: {} commands", command_queue_size);
         }
     }
     
@@ -300,14 +300,14 @@ impl PerformanceMonitor {
         let average_jitter = Duration::from_nanos(average_nanos);
         
         // Calculate standard deviation
-        let variance: u64 = measurements.iter()
+        let variance: f64 = measurements.iter()
             .map(|d| {
-                let diff = d.as_nanos() as i64 - average_nanos as i64;
-                (diff * diff) as u64
+                let diff = d.as_nanos() as f64 - average_nanos as f64;
+                diff * diff
             })
             .sum();
-        let std_dev_nanos = (variance / measurements.len() as u64) as f64;
-        let jitter_std_dev = Duration::from_nanos(std_dev_nanos.sqrt() as u64);
+        let std_dev_nanos = (variance / measurements.len() as f64).sqrt();
+        let jitter_std_dev = Duration::from_nanos(std_dev_nanos as u64);
         
         JitterStatistics {
             min_jitter,
@@ -339,14 +339,14 @@ impl PerformanceMonitor {
         let average_drift = Duration::from_nanos(average_nanos);
         
         // Calculate standard deviation
-        let variance: u64 = measurements.iter()
+        let variance: f64 = measurements.iter()
             .map(|d| {
-                let diff = d.as_nanos() as i64 - average_nanos as i64;
-                (diff * diff) as u64
+                let diff = d.as_nanos() as f64 - average_nanos as f64;
+                diff * diff
             })
             .sum();
-        let std_dev_nanos = (variance / measurements.len() as u64) as f64;
-        let drift_std_dev = Duration::from_nanos(std_dev_nanos.sqrt() as u64);
+        let std_dev_nanos = (variance / measurements.len() as f64).sqrt();
+        let drift_std_dev = Duration::from_nanos(std_dev_nanos as u64);
         
         DriftStatistics {
             min_drift,
@@ -472,7 +472,7 @@ impl PerformanceMonitor {
                 let benchmark = Self::generate_benchmark_static(&metrics, &benchmark_history).await;
                 
                 // Log performance summary
-                info!("📊 Performance Benchmark Generated:");
+                info!("METRICS: Performance Benchmark Generated:");
                 info!("   Jitter: {:?} ± {:?} (samples: {})", 
                       benchmark.jitter_stats.average_jitter, 
                       benchmark.jitter_stats.jitter_std_dev,
