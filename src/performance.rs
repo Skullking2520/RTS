@@ -232,14 +232,37 @@ impl PerformanceMonitor {
         metrics.telemetry_backlog = telemetry_backlog;
         metrics.command_queue_size = command_queue_size;
         
-        // Check for backlog issues
+        // Check for backlog issues with detailed logging
         if telemetry_backlog > 100 {
-            warn!("High telemetry backlog: {} messages", telemetry_backlog);
+            warn!("High telemetry backlog: {} messages (threshold: 100)", telemetry_backlog);
+            self.log_backlog_analysis("telemetry", telemetry_backlog, 100).await;
         }
         
         if command_queue_size > 50 {
-            warn!("WARNING: High command queue size: {} commands", command_queue_size);
+            warn!("WARNING: High command queue size: {} commands (threshold: 50)", command_queue_size);
+            self.log_backlog_analysis("command", command_queue_size, 50).await;
         }
+        
+        // Log system performance impact
+        if telemetry_backlog > 200 || command_queue_size > 100 {
+            error!("CRITICAL: System performance degraded - Telemetry: {}, Commands: {}", 
+                   telemetry_backlog, command_queue_size);
+        }
+    }
+    
+    /// Log detailed backlog analysis
+    async fn log_backlog_analysis(&self, queue_type: &str, current_size: u64, threshold: u64) {
+        let backlog_percentage = (current_size as f64 / threshold as f64) * 100.0;
+        let severity = if backlog_percentage > 200.0 {
+            "CRITICAL"
+        } else if backlog_percentage > 150.0 {
+            "HIGH"
+        } else {
+            "WARNING"
+        };
+        
+        warn!("BACKLOG ANALYSIS - {}: {} messages ({}% of threshold) - Severity: {}", 
+              queue_type, current_size, backlog_percentage as u32, severity);
     }
     
     /// Generate comprehensive performance benchmark

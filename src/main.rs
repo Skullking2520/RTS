@@ -31,11 +31,11 @@ async fn main() -> Result<()> {
     info!("Enhanced GCS (Ground Control Station) System Starting");
     info!("========================================================");
     info!("System Requirements:");
-    info!("   • 3ms telemetry decoding deadline");
-    info!("   • 2ms urgent command dispatch");
-    info!("   • 100ms fault response threshold");
-    info!("   • Real-time performance monitoring");
-    info!("   • Advanced safety interlocks");
+    info!("   - 3ms telemetry decoding deadline");
+    info!("   - 2ms urgent command dispatch");
+    info!("   - 100ms fault response threshold");
+    info!("   - Real-time performance monitoring");
+    info!("   - Advanced safety interlocks");
     info!("========================================================");
     
     // Load configuration

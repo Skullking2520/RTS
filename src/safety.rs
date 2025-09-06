@@ -236,6 +236,9 @@ impl SafetyInterlockManager {
         if response_time > Duration::from_millis(100) {
             error!("CRITICAL GROUND ALERT: Fault response time exceeded 100ms threshold: {:?}", response_time);
             self.trigger_critical_ground_alert(response_time).await;
+            
+            // Log detailed command rejection information
+            self.log_command_rejection_details(command_type, command_data, &action, triggered_interlock.clone(), response_time).await;
         }
         
         // Store command record
@@ -288,19 +291,22 @@ impl SafetyInterlockManager {
             }
         }
         
-        // Logging
+        // Enhanced logging with detailed rejection information
         match action {
             SafetyAction::Allowed => {
                 debug!("Command allowed: {} (Response time: {:?})", command_type, response_time);
             }
             SafetyAction::Delayed => {
                 warn!("Command delayed: {} (Interlock: {:?})", command_type, triggered_interlock);
+                self.log_command_rejection_details(command_type, command_data, &action, triggered_interlock.clone(), response_time).await;
             }
             SafetyAction::Blocked => {
                 error!("Command blocked: {} (Interlock: {:?})", command_type, triggered_interlock);
+                self.log_command_rejection_details(command_type, command_data, &action, triggered_interlock.clone(), response_time).await;
             }
             SafetyAction::Emergency => {
                 error!("Emergency command blocked: {} (Interlock: {:?})", command_type, triggered_interlock);
+                self.log_command_rejection_details(command_type, command_data, &action, triggered_interlock.clone(), response_time).await;
             }
             _ => {}
         }
@@ -530,7 +536,7 @@ impl SafetyInterlockManager {
     
     /// Trigger critical ground alert for response time >100ms
     async fn trigger_critical_ground_alert(&self, response_time: Duration) {
-        let alert_message = serde_json::json!({
+        let _alert_message = serde_json::json!({
             "alert": "CriticalGroundAlert",
             "description": format!("Fault response time exceeded 100ms threshold: {:?}", response_time),
             "severity": "Critical",
@@ -547,5 +553,46 @@ impl SafetyInterlockManager {
         // In a real system, this would trigger emergency procedures
         // For simulation, we just log the alert
         info!("Emergency procedures would be activated for response time: {:?}", response_time);
+    }
+    
+    /// Log detailed command rejection information
+    async fn log_command_rejection_details(
+        &self,
+        command_type: &str,
+        command_data: &str,
+        action: &SafetyAction,
+        interlock: Option<InterlockType>,
+        response_time: Duration,
+    ) {
+        let rejection_log = serde_json::json!({
+            "timestamp": chrono::Utc::now(),
+            "command_type": command_type,
+            "command_data": command_data,
+            "action_taken": format!("{:?}", action),
+            "interlock_triggered": interlock.map(|i| format!("{:?}", i)),
+            "response_time_ms": response_time.as_millis(),
+            "rejection_reason": match action {
+                SafetyAction::Blocked => "Command blocked by safety interlock",
+                SafetyAction::Delayed => "Command delayed due to safety warning",
+                SafetyAction::Emergency => "Emergency command blocked by critical interlock",
+                _ => "Unknown rejection reason",
+            },
+            "safety_level": match action {
+                SafetyAction::Blocked => "CRITICAL",
+                SafetyAction::Delayed => "WARNING",
+                SafetyAction::Emergency => "EMERGENCY",
+                _ => "UNKNOWN",
+            }
+        });
+        
+        error!("COMMAND REJECTION DETAILS: {}", serde_json::to_string_pretty(&rejection_log).unwrap());
+        
+        // Store rejection in command history for analysis
+        let mut history = self.command_history.write().await;
+        if history.len() > 0 {
+            if let Some(last_record) = history.last_mut() {
+                last_record.action_taken = action.clone();
+            }
+        }
     }
 }

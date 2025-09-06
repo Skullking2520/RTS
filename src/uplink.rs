@@ -213,7 +213,7 @@ impl UplinkTask {
             let start_time = Instant::now();
             
             // Parse command
-            let command_message = serde_json::json!({
+            let _command_message = serde_json::json!({
                 "type": command_type,
                 "action": action,
                 "timestamp": chrono::Utc::now(),
@@ -221,7 +221,7 @@ impl UplinkTask {
             });
             
             // Simulate command execution
-            let result = CommandResult::Success(serde_json::json!({
+            let _result = CommandResult::Success(serde_json::json!({
                 "status": "success",
                 "command": command_type,
                 "action": action,
@@ -253,16 +253,13 @@ impl UplinkTask {
         info!("Command message received: {} ({} bytes)", routing_key, body.len());
         debug!("   Raw data: {}", String::from_utf8_lossy(body));
         
-        // Attempt message parsing with 2ms deadline for urgent commands
+        // Attempt message parsing with dynamic deadline based on command priority
         match self.parse_command(body) {
             Ok(command) => {
-                // Check if this is an urgent command requiring 2ms dispatch
+                // Get dynamic deadline based on command priority and type
+                let dispatch_deadline = self.get_command_deadline(&command);
                 let is_urgent = self.is_urgent_command(&command);
-                let dispatch_deadline = if is_urgent {
-                    Duration::from_millis(2)
-                } else {
-                    Duration::from_millis(100) // Normal commands have 100ms
-                };
+                let is_emergency = self.is_emergency_command(&command);
                 
                 // Process command with deadline constraint
                 let result = tokio::time::timeout(dispatch_deadline, async {
@@ -288,8 +285,7 @@ impl UplinkTask {
                     // Record task execution time
                     if let Some(performance_monitor) = &self.performance_monitor {
                         let task_execution_time = start_time.elapsed();
-                        let deadline = if is_urgent { Duration::from_millis(2) } else { Duration::from_millis(100) };
-                        performance_monitor.record_task_execution(task_execution_time, deadline).await;
+                        performance_monitor.record_task_execution(task_execution_time, dispatch_deadline).await;
                     }
                     
                     // Send response to OCS
@@ -301,15 +297,30 @@ impl UplinkTask {
                 match result {
                     Ok(Ok(())) => {
                         let processing_time = start_time.elapsed();
-                        if is_urgent && processing_time > Duration::from_millis(2) {
-                            warn!("WARNING: Urgent command exceeded 2ms deadline: {:?}", processing_time);
+                        
+                        // Check deadline violations with appropriate logging
+                        if processing_time > dispatch_deadline {
+                            if is_emergency {
+                                error!("CRITICAL: Emergency command exceeded {:?} deadline: {:?}", dispatch_deadline, processing_time);
+                            } else if is_urgent {
+                                warn!("WARNING: Urgent command exceeded {:?} deadline: {:?}", dispatch_deadline, processing_time);
+                            } else {
+                                warn!("WARNING: Command exceeded {:?} deadline: {:?}", dispatch_deadline, processing_time);
+                            }
+                        } else {
+                            if is_emergency {
+                                info!("SUCCESS: Emergency command processed in {:?} (deadline: {:?})", processing_time, dispatch_deadline);
+                            } else if is_urgent {
+                                info!("SUCCESS: Urgent command processed in {:?} (deadline: {:?})", processing_time, dispatch_deadline);
+                            } else {
+                                debug!("SUCCESS: Command processed in {:?} (deadline: {:?})", processing_time, dispatch_deadline);
+                            }
                         }
                         
                         // ACK on successful message processing
                         ack(&delivery).await?;
                         self.metrics.communication.increment_commands_processed();
                         
-                        info!("SUCCESS: Command processed in {:?} (deadline: {:?})", processing_time, dispatch_deadline);
                         Ok(())
                     }
                     Ok(Err(e)) => {
@@ -348,6 +359,30 @@ impl UplinkTask {
                 custom_type.contains("urgent") || custom_type.contains("emergency")
             }
             _ => false,
+        }
+    }
+    
+    /// Check if command is emergency and requires immediate processing
+    fn is_emergency_command(&self, command: &CommandMessage) -> bool {
+        match &command.priority {
+            CommandPriority::Emergency => true,
+            _ => false,
+        }
+    }
+    
+    /// Get command dispatch deadline based on priority and type
+    fn get_command_deadline(&self, command: &CommandMessage) -> Duration {
+        if self.is_emergency_command(command) {
+            Duration::from_millis(1) // Emergency commands get 1ms
+        } else if self.is_urgent_command(command) {
+            Duration::from_millis(2) // Urgent commands get 2ms
+        } else {
+            match command.priority {
+                CommandPriority::High => Duration::from_millis(10),
+                CommandPriority::Normal => Duration::from_millis(100),
+                CommandPriority::Low => Duration::from_millis(1000),
+                CommandPriority::Emergency => Duration::from_millis(1),
+            }
         }
     }
     

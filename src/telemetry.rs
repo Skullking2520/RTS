@@ -26,6 +26,7 @@ pub struct TelemetryTask {
     expected_period: Duration,
     loc_threshold: u32,
     performance_monitor: Option<PerformanceMonitor>,
+    packet_re_request_queue: std::sync::Arc<tokio::sync::Mutex<Vec<u64>>>,
 }
 
 impl TelemetryTask {
@@ -46,6 +47,7 @@ impl TelemetryTask {
             expected_period: Duration::from_millis(20), // 20ms expected period
             loc_threshold: 3, // Loss of Contact threshold
             performance_monitor,
+            packet_re_request_queue: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
     
@@ -60,6 +62,9 @@ impl TelemetryTask {
         let mut consumer = self.amqp_client.create_telemetry_consumer().await?;
         
         info!("Waiting for telemetry messages...");
+        
+        // Start packet re-request monitoring task
+        let re_request_handle = self.start_packet_re_request_monitor().await;
         
         // Enhanced message processing loop with real-time monitoring
         while let Some(delivery) = consumer.next().await {
@@ -92,6 +97,8 @@ impl TelemetryTask {
             }
         }
         
+        // Cleanup
+        re_request_handle.abort();
         Ok(())
     }
     
@@ -216,8 +223,16 @@ impl TelemetryTask {
                 self.trigger_loss_of_contact_alert().await;
             }
             
-            // Trigger re-request for missing packets
-            self.trigger_packet_re_request(expected_sequence, current_sequence - 1).await;
+            // Add missing sequences to re-request queue
+            let mut queue = self.packet_re_request_queue.lock().await;
+            for seq in expected_sequence..current_sequence {
+                queue.push(seq);
+            }
+            
+            // Trigger immediate re-request for critical missing packets
+            if missing_packets <= 5 {
+                self.trigger_packet_re_request(expected_sequence, current_sequence - 1).await;
+            }
         } else {
             // Reset failure counter on successful packet
             let mut failure_count = self.consecutive_failures.lock().await;
@@ -247,6 +262,53 @@ impl TelemetryTask {
         } else {
             info!("SUCCESS: Packet re-request sent to OCS");
         }
+    }
+    
+    /// Start packet re-request monitoring task
+    async fn start_packet_re_request_monitor(&self) -> tokio::task::JoinHandle<()> {
+        let queue = self.packet_re_request_queue.clone();
+        let amqp_client = self.amqp_client.clone();
+        
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_millis(100));
+            
+            loop {
+                tick.tick().await;
+                
+                // Process pending re-requests
+                let mut pending_requests = queue.lock().await;
+                if !pending_requests.is_empty() {
+                    let requests = pending_requests.clone();
+                    pending_requests.clear();
+                    
+                    // Send batch re-request
+                    if let Err(e) = Self::send_batch_re_request(&amqp_client, &requests).await {
+                        error!("Failed to send batch re-request: {}", e);
+                        // Re-queue failed requests
+                        pending_requests.extend(requests);
+                    }
+                }
+            }
+        })
+    }
+    
+    /// Send batch packet re-request
+    async fn send_batch_re_request(amqp_client: &AmqpClient, sequences: &[u64]) -> Result<()> {
+        if sequences.is_empty() {
+            return Ok(());
+        }
+        
+        let re_request_command = serde_json::json!({
+            "type": "packet_re_request",
+            "action": "request_missing_batch",
+            "missing_sequences": sequences,
+            "timestamp": chrono::Utc::now(),
+            "reason": "missing_packets_detected"
+        });
+        
+        amqp_client.publish_command(re_request_command.to_string().as_bytes()).await?;
+        info!("Batch re-request sent for {} missing packets", sequences.len());
+        Ok(())
     }
     
     /// Parse message with strict deadline constraint
