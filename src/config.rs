@@ -107,7 +107,7 @@ impl Config {
     /// Print configuration summary
     pub fn print_summary(&self) {
         tracing::info!("GCS Configuration Summary:");
-        tracing::info!("   AMQP URI: {}", self.amqp_uri);
+        tracing::info!("   AMQP URI configured (credentials omitted)");
         tracing::info!("   Telemetry Exchange: {}", self.telem_exchange);
         tracing::info!("   Binding Pattern: {}", self.telem_binding);
         tracing::info!("   Telemetry Queue: {}", self.telem_queue);

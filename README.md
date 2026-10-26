@@ -1,32 +1,58 @@
-# 위성·지상국 통신 시뮬레이션
+# Ground Control Station coursework
 
-## 수행 배경
+My GCS implementation for the **Real-Time System** team assignment at APU. The team project covers satellite–ground communication; this repository contains the ground-station part, not the complete onboard system.
 
-| 항목 | 내용 |
+The Rust application uses Tokio and RabbitMQ to receive telemetry, schedule commands, apply safety checks, and record timing metrics. It also starts simulated faults and commands in [src/main.rs](src/main.rs).
+
+## Code
+
+| File | Responsibility |
 | --- | --- |
-| 과목 | Real-Time System |
-| 유형 | 학교 수업 팀 프로젝트 |
+| [src/main.rs](src/main.rs) | Application startup, tasks, and built-in simulation |
+| [src/amqp.rs](src/amqp.rs) | RabbitMQ exchanges, queues, and message transport |
+| [src/telemetry.rs](src/telemetry.rs) | Telemetry reception and decoding |
+| [src/uplink.rs](src/uplink.rs) | Command scheduling and dispatch |
+| [src/safety.rs](src/safety.rs) | Interlocks and command validation |
+| [src/metrics.rs](src/metrics.rs), [src/performance.rs](src/performance.rs) | Timing records and reporting |
+| [src/config.rs](src/config.rs) | Environment variables and defaults |
 
-Rust·RabbitMQ로 지상 관제 시스템의 텔레메트리 수신, 명령 전송, 안전 조건과 성능 로그를 다룹니다.
+The existing `src/` and `benches/` layout is retained. No separate Python integration-test script or complete OCS implementation is included.
 
-## 코드 안내
+## Build and run
 
-| 파일 | 역할 |
-| --- | --- |
-| [src/main.rs](src/main.rs) | 실행 진입점 |
-| [src/config.rs](src/config.rs) | AMQP 주소·시간 기준 설정 |
-| [src/telemetry.rs](src/telemetry.rs) | 텔레메트리 처리 |
-| [src/uplink.rs](src/uplink.rs) | 명령 전송 |
-| [src/safety.rs](src/safety.rs) | 안전 조건 |
-| [src/metrics.rs](src/metrics.rs) · [src/performance.rs](src/performance.rs) | 성능 지표 |
+Install Rust/Cargo and start an authorized local RabbitMQ instance. Run from the repository root:
 
-## 실행 조건
-
-Rust·Cargo와 RabbitMQ, 통신 상대의 메시지 형식·큐 설정이 필요합니다. `AMQP_URI` 등은 `src/config.rs`를 기준으로 지정합니다.
-
-```bash
+```sh
 cargo build
 cargo run
 ```
 
-텔레메트리 발행 측이 없으면 전체 통신 동작을 재현할 수 없습니다. 시간 예산은 설정값이며 보장된 실측 성능이 아닙니다. 과거 설명의 3ms·2ms 등은 현 코드의 기본 설정값과 다를 수 있으므로 [현재 설정](src/config.rs)을 기준으로 확인합니다. [기존 상세 문서](docs/ORIGINAL_README.md)는 당시 설계·목표 자료로 보관합니다.
+`AMQP_URI` selects the broker. The code defaults to a local guest account for development. Set your own broker URI in the shell when needed; do not commit credentials. `.env.example` lists optional settings but is not loaded automatically.
+
+The program creates queues/exchanges and sends simulated commands. A matching telemetry publisher and agreed message format are needed to check communication with the team's OCS.
+
+## Timing settings and limits
+
+The executable calls `Config::load()`. Its defaults are:
+
+| Setting | Default |
+| --- | --- |
+| `EXPECTED_PERIOD_MS` | 20 ms |
+| `DECODE_BUDGET_MS` | 5 ms |
+| `DISPATCH_BUDGET_MS` | 10 ms |
+| `METRICS_PERIOD_SEC` | 10 s |
+| `LOC_GAP_THRESHOLD` | 3 |
+| `LOC_TIMEOUT_MS` | Expected period × 10; normally 200 ms |
+
+These are configuration values, not measured latency guarantees. The earlier 3 ms decoding, 2 ms urgent-dispatch, and 100 ms fault-response figures describe assignment goals. No reproducible results in this repository establish that all deadlines are met.
+
+Some queue/exchange names remain hardcoded in the AMQP and task startup paths. Changing the similarly named fields in `Config` alone does not reconfigure the whole application.
+
+## Checks
+
+```sh
+cargo test --offline
+cargo bench --offline --no-run
+```
+
+Offline commands need cached dependencies. [benches/perf_bench.rs](benches/perf_bench.rs) compares message serialization; it does not measure end-to-end satellite communication. `cargo test` currently discovers no unit or documentation tests; compilation alone does not validate runtime behavior.
