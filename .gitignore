@@ -46,3 +46,39 @@ requirements.txt
 # Performance data
 *.prof
 *.flamegraph
+
+
+# 로컬 인증·환경 설정
+.env
+.env.*
+!.env.example
+!**/.env.example
+service_account.json
+service-account*.json
+credentials.json
+*-credentials.json
+*.pem
+*.key
+# 개발 환경·빌드 산출물
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.idea/
+.vs/
+.vscode/
+.DS_Store
+*.log
+*.exe
+*.o
+*.class
+node_modules/
+.next/
+target/
+# 비공개 수집 결과는 로컬에서 관리
+outputs/
+exports/
+results/
+jobs.csv
+books.csv
